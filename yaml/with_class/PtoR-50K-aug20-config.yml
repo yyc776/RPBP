@@ -1,0 +1,60 @@
+data:
+  corpus_1:
+    path_src: dataset/stage_two/train/sideprod_src-train_with_class.txt
+    path_tgt: dataset/stage_two/train/tgt-train.txt
+  valid:
+    path_src: dataset/stage_two/eval/sideprod_src-eval_with_class.txt
+    path_tgt: dataset/stage_two/eval/tgt-eval.txt
+
+n_sample: 0
+save_data: dataset/stage_two/example_with_class
+src_vocab: dataset/stage_two/example_with_class.vocab.src
+tgt_vocab: dataset/stage_two/example_with_class.vocab.src
+share_vocab: 'true'
+src_seq_length: 500
+tgt_seq_length: 500
+overwrite: 'true'
+
+save_model: save_model/stage_two/with_class/aug20/model.product-reactants
+save_checkpoint_steps: 10000
+keep_checkpoint: 40
+seed: 3435
+train_steps: 600000
+valid_steps: 50000
+warmup_steps: 8000
+report_every: 1000
+
+decoder_type: transformer
+encoder_type: transformer
+word_vec_size: 256
+rnn_size: 256
+layers: 6
+transformer_ff: 2048
+heads: 8
+
+accum_count: 1
+optim: adam
+adam_beta1: 0.9
+adam_beta2: 0.998
+decay_method: noam
+learning_rate: 1.0
+max_grad_norm: 0.0
+
+batch_size: 128
+valid_batch_size: 128
+batch_type: sents
+normalization: sents
+dropout: 0.3
+attention_dropout: 0.3
+label_smoothing: 0.0
+
+max_generator_batches: 0
+
+param_init: 0.0
+param_init_glorot: 'true'
+position_encoding: 'true'
+
+world_size: 1
+gpu_ranks: [0]
+
+

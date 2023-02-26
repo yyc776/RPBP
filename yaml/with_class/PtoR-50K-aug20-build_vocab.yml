@@ -1,0 +1,16 @@
+data:
+  corpus_1:
+    path_src: dataset/stage_two/train/sideprod_src-train_with_class.txt
+    path_tgt: dataset/stage_two/train/tgt-train.txt
+  valid:
+    path_src: dataset/stage_two/eval/sideprod_src-eval_with_class.txt
+    path_tgt: dataset/stage_two/eval/tgt-eval.txt
+
+n_sample: -1
+save_data: dataset/stage_two/example_with_class
+src_vocab: dataset/stage_two/example_with_class.vocab.src
+tgt_vocab: dataset/stage_two/example_with_class.vocab.src
+share_vocab: 'true'
+src_seq_length: 500
+tgt_seq_length: 500
+overwrite: 'true'
