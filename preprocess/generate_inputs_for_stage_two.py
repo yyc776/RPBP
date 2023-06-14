@@ -65,31 +65,31 @@ def get_root_id(mol, root_map_number):
     return root
 
 
-def analyse_save(lcs_side):
-    cano_lcs_side = [Chem.MolToSmiles(Chem.MolFromSmiles(side)) for side in lcs_side]
-    lcs_side_df = pd.DataFrame()
-    lcs_side_df['cano_lcs_side'] = cano_lcs_side
-    lcs_side_df['lcs_side'] = lcs_side
-    side_prob_dict = {}
-    groups = lcs_side_df.groupby(['cano_lcs_side'])
+def analyse_save(lcs_byproduct):
+    cano_lcs_byproduct = [Chem.MolToSmiles(Chem.MolFromSmiles(byproduct)) for byproduct in lcs_byproduct]
+    lcs_byproduct_df = pd.DataFrame()
+    lcs_byproduct_df['cano_lcs_byproduct'] = cano_lcs_byproduct
+    lcs_byproduct_df['lcs_byproduct'] = lcs_byproduct
+    byproduct_prob_dict = {}
+    groups = lcs_byproduct_df.groupby(['cano_lcs_byproduct'])
     for group in groups:
         cano_lcs = group[0]
-        side_prob_dict[cano_lcs] = {}
-        lcs_side_list = group[1]['lcs_side'].tolist()
-        side_list = set(lcs_side_list)
-        for side in side_list:
-            side_prob_dict[cano_lcs][side] = lcs_side_list.count(side) / len(lcs_side_list)
+        byproduct_prob_dict[cano_lcs] = {}
+        lcs_byproduct_list = group[1]['lcs_byproduct'].tolist()
+        byproduct_list = set(lcs_byproduct_list)
+        for byproduct in byproduct_list:
+            byproduct_prob_dict[cano_lcs][byproduct] = lcs_byproduct_list.count(byproduct) / len(lcs_byproduct_list)
 
-    joblib.dump(side_prob_dict, os.path.join(r'../', args.exp_id, 'dataset/stage_two/lcs_side_prob.dict'))
-    return side_prob_dict
+    joblib.dump(byproduct_prob_dict, os.path.join(r'../', args.task_dataset, 'dataset/stage_two/lcs_byproduct_prob.dict'))
+    return byproduct_prob_dict
 
 
 def prob_sample_train(args):
-    save_dir = os.path.join(r'../', args.exp_id, 'dataset/stage_two')
-    csv_path = os.path.join(r'../', args.exp_id, 'dataset/stage_one/train/side_product_rxn_train.csv')
+    save_dir = os.path.join(r'../', args.task_dataset, 'dataset/stage_two')
+    csv_path = os.path.join(r'../', args.task_dataset, 'dataset/stage_one/train/byproduct_rxn_train.csv')
     csv = pd.read_csv(csv_path)
     reaction_list = list(csv["reactants>reagents>production"])
-    sideprod_list = list(csv["sideprod"])
+    byproduct_list = list(csv["byproduct"])
     reactant_smarts_list = list(
         map(lambda x: x.split('>')[0], reaction_list))
     reactant_smarts_list = list(
@@ -100,19 +100,19 @@ def prob_sample_train(args):
         map(lambda x: x.split(' ')[0], product_smarts_list))
     reactants = reactant_smarts_list
     products = product_smarts_list
-    sideprods = sideprod_list
+    byproducts = byproduct_list
 
     data = [{
         "reactant": i,
         "product": j,
-        "sideprod": n,
+        "byproduct": n,
         "augmentation": args.augmentation,
         "root_aligned": not args.canonical,
-    } for i, j, n in zip(reactants, products, sideprods)]
+    } for i, j, n in zip(reactants, products, byproducts)]
 
-    lcs_side = []
+    lcs_byproduct = []
     tgt_lcs_data = []
-    sideprod_src_lcs_data = []
+    byproduct_src_lcs_data = []
     skip_dict = {
         'invalid_p': 0,
         'invalid_r': 0,
@@ -134,27 +134,26 @@ def prob_sample_train(args):
         if result['status'] != 0:
             skip_dict[result['status']] += 1
             continue
-        lcs_side.extend(result['lcs_side'])
-        sideprod_src_lcs_data.extend(result['sideprod_src_data'])
+        lcs_byproduct.extend(result['lcs_byproduct'])
+        byproduct_src_lcs_data.extend(result['byproduct_src_data'])
         tgt_lcs_data.extend(result['tgt_data'])
-
-    with open(
-            os.path.join(save_dir, 'tgt_lcs-train.txt'), 'w') as f:
+    os.makedirs(save_dir,exist_ok=True)
+    with open(os.path.join(save_dir, 'tgt_lcs-train.txt'), 'w') as f:
         for tgt in tgt_lcs_data:
             f.write('{}\n'.format(tgt))
 
     with open(
-            os.path.join(save_dir, 'sideprod_src_lcs-train.txt'), 'w') as f:
-        for sideprod_src_lcs in sideprod_src_lcs_data:
-            f.write('{}\n'.format(sideprod_src_lcs))
-    return lcs_side
+            os.path.join(save_dir, 'byproduct_src_lcs-train.txt'), 'w') as f:
+        for byproduct_src_lcs in byproduct_src_lcs_data:
+            f.write('{}\n'.format(byproduct_src_lcs))
+    return lcs_byproduct
 
 
 def prob_sample_multi_process(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -165,10 +164,10 @@ def prob_sample_multi_process(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -270,72 +269,72 @@ def prob_sample_multi_process(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                # sideprod_edit_distances = []
+                # byproduct_edit_distances = []
                 min_dis = 10000
-                min_sideprod = ''
-                min_sideprod_list = []
+                min_byproduct = ''
+                min_byproduct_list = []
                 max_lcs_list = []
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_comb_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
-                    for sideprod_smi in sideprod_comb_list:
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_comb_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
+                    for byproduct_smi in byproduct_comb_list:
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance <= min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct = byproduct_smi
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
-                    # min_sideprod = random.choice(sideprod_comb_list)
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    # sideprod_edit_distances.append(min_dis)
-                    return_status['lcs_side'].append(min_sideprod)
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
+                    # min_byproduct = random.choice(byproduct_comb_list)
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    # byproduct_edit_distances.append(min_dis)
+                    return_status['lcs_byproduct'].append(min_byproduct)
                 else:
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance < min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
+                            min_byproduct = byproduct_smi
                         elif distance == min_dis:
-                            min_sideprod_list.append(sideprod_smi)
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct_list.append(byproduct_smi)
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
 
-                    # sideprod_list = [clear_map_canonical_smiles(sideprod, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(sideprod).GetNumAtoms())]
-                    # min_sideprod = random.choice(sideprod_list)
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    return_status['lcs_side'].append(min_sideprod)
-                    # sideprod_edit_distances.append(min_dis)
+                    # byproduct_list = [clear_map_canonical_smiles(byproduct, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(byproduct).GetNumAtoms())]
+                    # min_byproduct = random.choice(byproduct_list)
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    return_status['lcs_byproduct'].append(min_byproduct)
+                    # byproduct_edit_distances.append(min_dis)
                 # assert min_dis < 10000
-                # return_status['sideprod_edit_distance'] = np.mean(sideprod_edit_distances)
+                # return_status['byproduct_edit_distance'] = np.mean(byproduct_edit_distances)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -347,7 +346,7 @@ def prob_sample_multi_process_2(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -358,10 +357,10 @@ def prob_sample_multi_process_2(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -456,75 +455,75 @@ def prob_sample_multi_process_2(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                # sideprod_edit_distances = []
+                # byproduct_edit_distances = []
                 # min_dis = 10000
-                # min_sideprod = ''
-                # min_sideprod_list = []
+                # min_byproduct = ''
+                # min_byproduct_list = []
                 max_lcs_list = []
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_comb_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
-                    # for sideprod_smi in sideprod_comb_list:
-                    #     sideprod_src = src.split()
-                    #     sideprod_src.append('.')
-                    #     sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                    #     distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_comb_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
+                    # for byproduct_smi in byproduct_comb_list:
+                    #     byproduct_src = src.split()
+                    #     byproduct_src.append('.')
+                    #     byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                    #     distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                     #     if distance <= min_dis:
                     #         min_dis = distance
-                    #         min_sideprod = sideprod_smi
-                    # min_sideprod_list.append(min_sideprod)
-                    for i in sideprod_comb_list:
+                    #         min_byproduct = byproduct_smi
+                    # min_byproduct_list.append(min_byproduct)
+                    for i in byproduct_comb_list:
                         # lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                         lcs_lenth = textdistance.lcsseq.distance(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    # assert len(max_lcs_list) == len(min_sideprod_list)
-                    lcs_sideprod = sideprod_comb_list[max_lcs_list.index(max(max_lcs_list))]
-                    # min_sideprod = random.choice(sideprod_comb_list)
-                    sideprod_src = src.replace(' ', '') + '.' + lcs_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    # sideprod_edit_distances.append(min_dis)
-                    return_status['lcs_side'].append(lcs_sideprod)
+                    # assert len(max_lcs_list) == len(min_byproduct_list)
+                    lcs_byproduct = byproduct_comb_list[max_lcs_list.index(max(max_lcs_list))]
+                    # min_byproduct = random.choice(byproduct_comb_list)
+                    byproduct_src = src.replace(' ', '') + '.' + lcs_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    # byproduct_edit_distances.append(min_dis)
+                    return_status['lcs_byproduct'].append(lcs_byproduct)
                 else:
-                    sideprod_list = []
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_list.append(sideprod_smi)
-                        # sideprod_src = src.split()
-                        # sideprod_src.append('.')
-                        # sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        # distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                    byproduct_list = []
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_list.append(byproduct_smi)
+                        # byproduct_src = src.split()
+                        # byproduct_src.append('.')
+                        # byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        # distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         # if distance < min_dis:
                         #     min_dis = distance
-                        #     min_sideprod = sideprod_smi
+                        #     min_byproduct = byproduct_smi
                         # elif distance == min_dis:
-                        #     min_sideprod_list.append(sideprod_smi)
-                    # min_sideprod_list.append(min_sideprod)
-                    for i in sideprod_list:
+                        #     min_byproduct_list.append(byproduct_smi)
+                    # min_byproduct_list.append(min_byproduct)
+                    for i in byproduct_list:
                         lcs_lenth = textdistance.lcsstr.distance(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    # assert len(max_lcs_list) == len(min_sideprod_list)
-                    lcs_sideprod = sideprod_list[max_lcs_list.index(max(max_lcs_list))]
+                    # assert len(max_lcs_list) == len(min_byproduct_list)
+                    lcs_byproduct = byproduct_list[max_lcs_list.index(max(max_lcs_list))]
 
-                    # sideprod_list = [clear_map_canonical_smiles(sideprod, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(sideprod).GetNumAtoms())]
-                    # min_sideprod = random.choice(sideprod_list)
-                    sideprod_src = src.replace(' ', '') + '.' + lcs_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    return_status['lcs_side'].append(lcs_sideprod)
-                    # sideprod_edit_distances.append(min_dis)
+                    # byproduct_list = [clear_map_canonical_smiles(byproduct, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(byproduct).GetNumAtoms())]
+                    # min_byproduct = random.choice(byproduct_list)
+                    byproduct_src = src.replace(' ', '') + '.' + lcs_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    return_status['lcs_byproduct'].append(lcs_byproduct)
+                    # byproduct_edit_distances.append(min_dis)
                 # assert min_dis < 10000
-                # return_status['sideprod_edit_distance'] = np.mean(sideprod_edit_distances)
+                # return_status['byproduct_edit_distance'] = np.mean(byproduct_edit_distances)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -536,7 +535,7 @@ def prob_sample_multi_process_3(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -547,10 +546,10 @@ def prob_sample_multi_process_3(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -652,72 +651,72 @@ def prob_sample_multi_process_3(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                # sideprod_edit_distances = []
+                # byproduct_edit_distances = []
                 min_dis = 10000
-                min_sideprod = ''
-                min_sideprod_list = []
+                min_byproduct = ''
+                min_byproduct_list = []
                 max_lcs_list = []
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_comb_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
-                    for sideprod_smi in sideprod_comb_list:
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_comb_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
+                    for byproduct_smi in byproduct_comb_list:
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance <= min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct = byproduct_smi
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = textdistance.lcsstr.distance(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
-                    # min_sideprod = random.choice(sideprod_comb_list)
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    # sideprod_edit_distances.append(min_dis)
-                    return_status['lcs_side'].append(min_sideprod)
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
+                    # min_byproduct = random.choice(byproduct_comb_list)
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    # byproduct_edit_distances.append(min_dis)
+                    return_status['lcs_byproduct'].append(min_byproduct)
                 else:
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance < min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
+                            min_byproduct = byproduct_smi
                         elif distance == min_dis:
-                            min_sideprod_list.append(sideprod_smi)
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct_list.append(byproduct_smi)
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = textdistance.lcsstr.distance(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
 
-                    # sideprod_list = [clear_map_canonical_smiles(sideprod, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(sideprod).GetNumAtoms())]
-                    # min_sideprod = random.choice(sideprod_list)
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    return_status['lcs_side'].append(min_sideprod)
-                    # sideprod_edit_distances.append(min_dis)
+                    # byproduct_list = [clear_map_canonical_smiles(byproduct, canonical=True, root=n1) for n1 in range(Chem.MolFromSmiles(byproduct).GetNumAtoms())]
+                    # min_byproduct = random.choice(byproduct_list)
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    return_status['lcs_byproduct'].append(min_byproduct)
+                    # byproduct_edit_distances.append(min_dis)
                 # assert min_dis < 10000
-                # return_status['sideprod_edit_distance'] = np.mean(sideprod_edit_distances)
+                # return_status['byproduct_edit_distance'] = np.mean(byproduct_edit_distances)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -729,7 +728,7 @@ def prob_sample_multi_process_4(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -740,10 +739,10 @@ def prob_sample_multi_process_4(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -761,7 +760,7 @@ def prob_sample_multi_process_4(data):
     if not all([a.HasProp('molAtomMapNumber') for a in pro_mol.GetAtoms()]):
         return_status["status"] = "error_mapping_p"
     """finishing checking data quality"""
-    if sideprod == 'CC(=O)O':
+    if byproduct == 'CC(=O)O':
         a = 1
 
     if return_status['status'] == 0:
@@ -847,32 +846,32 @@ def prob_sample_multi_process_4(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
-            if sideprod_mol.GetNumAtoms() == 1:
-                sideprod_smi = sideprod
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
+            if byproduct_mol.GetNumAtoms() == 1:
+                byproduct_smi = byproduct
             else:
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_smi_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_smi_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
                 else:
-                    sideprod_smi_list = []
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_smi_list.append(sideprod_smi)
+                    byproduct_smi_list = []
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_smi_list.append(byproduct_smi)
 
                 lcs_distance_smiles_list = []
                 for tgt in return_status['tgt_data']:
                     lcs_distance_list = []
-                    for sideprod_smi in sideprod_smi_list:
-                        lcs_distance = len(sideprod_smi) - textdistance.lcsstr.similarity(sideprod_smi, tgt.replace(' ', ''))
+                    for byproduct_smi in byproduct_smi_list:
+                        lcs_distance = len(byproduct_smi) - textdistance.lcsstr.similarity(byproduct_smi, tgt.replace(' ', ''))
                         lcs_distance_list.append(lcs_distance)
 
                     lcs_distance_smiles_list.append(lcs_distance_list)
@@ -882,14 +881,14 @@ def prob_sample_multi_process_4(data):
                 max_lcs_index = np.where(value == np.max(value))
                 if len(max_lcs_index) > 1:
                     print('eeeee')
-                sideprod_smi = sideprod_smi_list[max_lcs_index[0][0]]
+                byproduct_smi = byproduct_smi_list[max_lcs_index[0][0]]
 
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                sideprod_src = src.replace(' ', '') + '.' + sideprod_smi
-                return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                return_status['lcs_side'].append(sideprod_smi)
+                byproduct_src = src.replace(' ', '') + '.' + byproduct_smi
+                return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                return_status['lcs_byproduct'].append(byproduct_smi)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -901,7 +900,7 @@ def prob_sample_multi_process_5(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -912,10 +911,10 @@ def prob_sample_multi_process_5(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -1017,37 +1016,37 @@ def prob_sample_multi_process_5(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
-            if sideprod_mol.GetNumAtoms() == 1:
-                sideprod_smi = sideprod
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
+            if byproduct_mol.GetNumAtoms() == 1:
+                byproduct_smi = byproduct
             else:
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_smi_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_smi_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
                 else:
-                    sideprod_smi_list = []
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_smi_list.append(sideprod_smi)
-                if len(list(set(sideprod_smi_list))) == 1:
-                    sideprod_smi = sideprod_smi_list[0]
+                    byproduct_smi_list = []
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_smi_list.append(byproduct_smi)
+                if len(list(set(byproduct_smi_list))) == 1:
+                    byproduct_smi = byproduct_smi_list[0]
                 else:
                     lcs_distance_smiles_list = []
                     for tgt in return_status['tgt_data']:
                         lcs_distance_list = []
                         rule = str.maketrans('', '', digits)
-                        for sideprod_smi in sideprod_smi_list:
-                            o_number_side = sideprod_smi.translate(rule)
+                        for byproduct_smi in byproduct_smi_list:
+                            o_number_byproduct = byproduct_smi.translate(rule)
                             o_number_tgt = tgt.replace(' ', '').translate(rule)
-                            lcs_distance = len(o_number_side) - textdistance.lcsstr.similarity(o_number_side, o_number_tgt)
+                            lcs_distance = len(o_number_byproduct) - textdistance.lcsstr.similarity(o_number_byproduct, o_number_tgt)
                             lcs_distance_list.append(lcs_distance)
 
                         lcs_distance_smiles_list.append(lcs_distance_list)
@@ -1057,14 +1056,14 @@ def prob_sample_multi_process_5(data):
                     max_lcs_index = np.where(value == np.max(value))
                     # if len(max_lcs_index[0]) > 1:
                     #     print('eeeee')
-                    sideprod_smi = sideprod_smi_list[max_lcs_index[0][0]]
+                    byproduct_smi = byproduct_smi_list[max_lcs_index[0][0]]
 
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                sideprod_src = src.replace(' ', '') + '.' + sideprod_smi
-                return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                return_status['lcs_side'].append(sideprod_smi)
+                byproduct_src = src.replace(' ', '') + '.' + byproduct_smi
+                return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                return_status['lcs_byproduct'].append(byproduct_smi)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -1076,7 +1075,7 @@ def prob_sample_multi_process_6(data):
 
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -1085,10 +1084,10 @@ def prob_sample_multi_process_6(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
-        "lcs_side": [],
+        "byproduct_edit_distance": 0,
+        "lcs_byproduct": [],
     }
 
     if "" == product:
@@ -1159,52 +1158,52 @@ def prob_sample_multi_process_6(data):
 
         assert len(return_status['src_data']) == data['augmentation']
 
-        if sideprod not in ['<eos>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
+        if byproduct not in ['<eos>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
 
-            if '.' in sideprod:
-                sideprod_list = sideprod.split('.')
-                lenth = len(sideprod_list)
-                sideprod_smi_list = [[] for _ in range(lenth)]
+            if '.' in byproduct:
+                byproduct_list = byproduct.split('.')
+                lenth = len(byproduct_list)
+                byproduct_smi_list = [[] for _ in range(lenth)]
                 for n in range(lenth):
-                    for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                        sideprod_smi_list[n].append(
-                            clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                sideprod_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
+                    for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                        byproduct_smi_list[n].append(
+                            clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                byproduct_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
             else:
-                sideprod_list = []
-                for i in range(sideprod_mol.GetNumAtoms()):
-                    sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                    sideprod_list.append(sideprod_smi)
-            sideprod_list = list(set(sideprod_list))
+                byproduct_list = []
+                for i in range(byproduct_mol.GetNumAtoms()):
+                    byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                    byproduct_list.append(byproduct_smi)
+            byproduct_list = list(set(byproduct_list))
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
                 max_lcs_list = []
                 distance_list = []
 
-                for sideprod_smi in sideprod_list:
+                for byproduct_smi in byproduct_list:
                     new_src = src.split()
                     new_src.append('.')
-                    new_src.extend(smi_tokenizer(sideprod_smi).split())
+                    new_src.extend(smi_tokenizer(byproduct_smi).split())
                     distance = textdistance.levenshtein.distance(new_src, tgt.split())
                     distance_list.append(distance)
                 min_distance = min(distance_list)
                 min_distance_idx = [idx for idx, distance in enumerate(distance_list) if distance == min_distance]
-                min_sideprod_list = [sideprod_list[idx] for idx in min_distance_idx]
+                min_byproduct_list = [byproduct_list[idx] for idx in min_distance_idx]
                 rule = str.maketrans('', '', digits)
-                for i in min_sideprod_list:
+                for i in min_byproduct_list:
                     o_number_i = i.translate(rule)
                     o_number_tgt = tgt.replace(' ', '').translate(rule)
                     lcs_distance = len(o_number_i) - textdistance.lcsstr.similarity(o_number_i, o_number_tgt)
                     # lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                     max_lcs_list.append(lcs_distance)
-                assert len(max_lcs_list) == len(min_sideprod_list)
-                min_sideprod = min_sideprod_list[max_lcs_list.index(min(max_lcs_list))]
-                sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                return_status['lcs_side'].append(min_sideprod)
+                assert len(max_lcs_list) == len(min_byproduct_list)
+                min_byproduct = min_byproduct_list[max_lcs_list.index(min(max_lcs_list))]
+                byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                return_status['lcs_byproduct'].append(byproduct)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
 
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
@@ -1217,7 +1216,7 @@ def multi_process(data):
     global args
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     rxn_class = data['rxn_class']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
@@ -1227,10 +1226,10 @@ def multi_process(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "use_class_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
+        "byproduct_edit_distance": 0,
     }
     if "" == product:
         return_status["status"] = "empty_p"
@@ -1295,33 +1294,33 @@ def multi_process(data):
             return_status['tgt_data'].append(reactant_tokens)
         assert len(return_status['src_data']) == data['augmentation']
 
-        if sideprod not in ['<eos>']:
+        if byproduct not in ['<eos>']:
             for src in return_status['src_data']:
                 try:
                     if args.sample in ['random', 'prob']:
-                        side_prob_dict = lcs_side_prob_dict[sideprod]
-                        weights = list(side_prob_dict.values()) if args.sample == 'prob' else None
-                        random_sideprod = \
-                            random.choices(list(side_prob_dict.keys()), weights=weights, k=1)[-1]
+                        byproduct_prob_dict = lcs_byproduct_prob_dict[byproduct]
+                        weights = list(byproduct_prob_dict.values()) if args.sample == 'prob' else None
+                        random_byproduct = \
+                            random.choices(list(byproduct_prob_dict.keys()), weights=weights, k=1)[-1]
                     else:
                         assert args.sample == 'cano'
-                        random_sideprod = clear_map_canonical_smiles(sideprod)
+                        random_byproduct = clear_map_canonical_smiles(byproduct)
                 except:
-                    random_sideprod = sideprod
-                sideprod_src = src.replace(' ', '') + '.' + random_sideprod
-                return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
+                    random_byproduct = byproduct
+                byproduct_src = src.replace(' ', '') + '.' + random_byproduct
+                return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
         return_status['edit_distance'] = np.mean(edit_distances)
-        sideprod_edit_distances = []
-        for src, tgt in zip(return_status['sideprod_src_data'], return_status['tgt_data']):
-            sideprod_edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
-        return_status['sideprod_edit_distances'] = np.mean(sideprod_edit_distances)
+        byproduct_edit_distances = []
+        for src, tgt in zip(return_status['byproduct_src_data'], return_status['tgt_data']):
+            byproduct_edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
+        return_status['byproduct_edit_distances'] = np.mean(byproduct_edit_distances)
 
-        for i in return_status['sideprod_src_data']:
+        for i in return_status['byproduct_src_data']:
             return_status['use_class_src_data'].append('RXN_%s %s' % (rxn_class, i))
 
     return return_status
@@ -1330,7 +1329,7 @@ def multi_process_2(data):
     global args
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     rxn_class = data['rxn_class']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
@@ -1340,10 +1339,10 @@ def multi_process_2(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "use_class_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
+        "byproduct_edit_distance": 0,
     }
     if "" == product:
         return_status["status"] = "empty_p"
@@ -1408,59 +1407,59 @@ def multi_process_2(data):
             return_status['tgt_data'].append(reactant_tokens)
         assert len(return_status['src_data']) == data['augmentation']
 
-        if sideprod not in ['<eos>']:
+        if byproduct not in ['<eos>']:
             try:
                 if args.sample == 'prob':
-                    side_prob_dict = lcs_side_prob_dict[sideprod]
-                    weights = list(side_prob_dict.values())
-                    sideprod = random.choices(list(side_prob_dict.keys()), weights=weights, k=1)[-1]
-                    return_status['sideprod_src_data'] = [smi_tokenizer(src.replace(' ', '') + '.' + sideprod) for src
+                    byproduct_prob_dict = lcs_byproduct_prob_dict[byproduct]
+                    weights = list(byproduct_prob_dict.values())
+                    byproduct = random.choices(list(byproduct_prob_dict.keys()), weights=weights, k=1)[-1]
+                    return_status['byproduct_src_data'] = [smi_tokenizer(src.replace(' ', '') + '.' + byproduct) for src
                                                           in return_status['src_data']]
                 elif args.sample == 'random':
-                    side_prod_mol = Chem.MolFromSmiles(sideprod)
-                    if '.' in sideprod:
-                        sideprod_list = sideprod.split('.')
-                        lenth = len(sideprod_list)
-                        sideprod_smi_list = [[] for _ in range(lenth)]
+                    byproduct_prod_mol = Chem.MolFromSmiles(byproduct)
+                    if '.' in byproduct:
+                        byproduct_list = byproduct.split('.')
+                        lenth = len(byproduct_list)
+                        byproduct_smi_list = [[] for _ in range(lenth)]
                         for n in range(lenth):
-                            for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                                sideprod_smi_list[n].append(
-                                    clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                        sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                        sideprod_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
+                            for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                                byproduct_smi_list[n].append(
+                                    clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                        byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                        byproduct_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
                     else:
-                        sideprod_list = []
-                        for i in range(side_prod_mol.GetNumAtoms()):
-                            sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                            sideprod_list.append(sideprod_smi)
+                        byproduct_list = []
+                        for i in range(byproduct_prod_mol.GetNumAtoms()):
+                            byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                            byproduct_list.append(byproduct_smi)
                     for src in return_status['src_data']:
-                        sideprod = random.choice(sideprod_list)
-                        return_status['sideprod_src_data'].append(smi_tokenizer(src.replace(' ', '') + '.' + sideprod))
+                        byproduct = random.choice(byproduct_list)
+                        return_status['byproduct_src_data'].append(smi_tokenizer(src.replace(' ', '') + '.' + byproduct))
                 else:
                     assert args.sample == 'cano'
-                    sideprod = clear_map_canonical_smiles(sideprod)
-                    return_status['sideprod_src_data'] = [smi_tokenizer(src.replace(' ', '') + '.' + sideprod) for src
+                    byproduct = clear_map_canonical_smiles(byproduct)
+                    return_status['byproduct_src_data'] = [smi_tokenizer(src.replace(' ', '') + '.' + byproduct) for src
                                                           in return_status['src_data']]
             except Exception as e:
                 print(e)
                 pass
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
         return_status['edit_distance'] = np.mean(edit_distances)
-        sideprod_edit_distances = []
-        for src, tgt in zip(return_status['sideprod_src_data'], return_status['tgt_data']):
-            sideprod_edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
-        return_status['sideprod_edit_distances'] = np.mean(sideprod_edit_distances)
+        byproduct_edit_distances = []
+        for src, tgt in zip(return_status['byproduct_src_data'], return_status['tgt_data']):
+            byproduct_edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
+        return_status['byproduct_edit_distances'] = np.mean(byproduct_edit_distances)
 
-        for i in return_status['sideprod_src_data']:
+        for i in return_status['byproduct_src_data']:
             return_status['use_class_src_data'].append('RXN_%s %s' % (rxn_class, i))
 
     return return_status
 
-def preprocess(reactants, products, sideprods, rxns_class_list, set_name):
+def preprocess(reactants, products, byproducts, rxns_class_list, set_name):
 
     global args
 
@@ -1470,14 +1469,14 @@ def preprocess(reactants, products, sideprods, rxns_class_list, set_name):
     data = [{
         "reactant": i,
         "product": j,
-        "sideprod": n,
+        "byproduct": n,
         "rxn_class": r,
         "augmentation": augmentation,
-    } for i, j, n, r in zip(reactants, products, sideprods, rxns_class_list)]
+    } for i, j, n, r in zip(reactants, products, byproducts, rxns_class_list)]
 
     src_data = []
     tgt_data = []
-    sideprod_src_data = []
+    byproduct_src_data = []
     use_class_src_data = []
     skip_dict = {
         'invalid_p': 0,
@@ -1497,21 +1496,21 @@ def preprocess(reactants, products, sideprods, rxns_class_list, set_name):
     pool.join()
 
     edit_distances = []
-    sideprod_edit_distances = []
+    byproduct_edit_distances = []
     for result in tqdm(results):
         if result['status'] != 0:
             skip_dict[result['status']] += 1
             continue
         edit_distances.append(result['edit_distance'])
-        sideprod_edit_distances.append(result['sideprod_edit_distances'])
+        byproduct_edit_distances.append(result['byproduct_edit_distances'])
         src_data.extend(result['src_data'])
         tgt_data.extend(result['tgt_data'])
-        sideprod_src_data.extend(result['sideprod_src_data'])
+        byproduct_src_data.extend(result['byproduct_src_data'])
         use_class_src_data.extend(result['use_class_src_data'])
 
     print("Avg. edit distance:", np.mean(edit_distances))
-    print("Avg. side_prod edit distance:", np.mean(sideprod_edit_distances))
-    print('size', len(sideprod_src_data))
+    print("Avg. byproduct edit distance:", np.mean(byproduct_edit_distances))
+    print('size', len(byproduct_src_data))
     # for key, value in skip_dict.items():
     #     print(f"{key}:{value},{value / len(reactants)}")
     if args.topn != 1:
@@ -1520,9 +1519,9 @@ def preprocess(reactants, products, sideprods, rxns_class_list, set_name):
         save_name = ''
 
     if args.mode == 'test':
-        save_dir = os.path.join(r'../%s' % args.exp_id, r'dataset/stage_two/with_class') if args.with_class else os.path.join(r'../%s' % args.exp_id, r'dataset/stage_two/without_class')
+        save_dir = os.path.join(r'../%s' % args.task_dataset, r'dataset/stage_two/with_class') if args.with_class else os.path.join(r'../%s' % args.task_dataset, r'dataset/stage_two/without_class')
     else:
-        save_dir = os.path.join(r'../%s' % args.exp_id, r'dataset/stage_two/%s' % set_name)
+        save_dir = os.path.join(r'../%s' % args.task_dataset, r'dataset/stage_two/%s' % set_name)
 
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -1533,16 +1532,16 @@ def preprocess(reactants, products, sideprods, rxns_class_list, set_name):
             f.write('{}\n'.format(tgt))
 
     if args.mode != 'test' or not args.with_class:
-        with open(os.path.join(save_dir, '{}sideprod_src-{}.txt'.format(save_name, set_name)), 'w') as f:
-            for sideprod_src in sideprod_src_data:
-                f.write('{}\n'.format(sideprod_src))
+        with open(os.path.join(save_dir, '{}byproduct_src-{}.txt'.format(save_name, set_name)), 'w') as f:
+            for byproduct_src in byproduct_src_data:
+                f.write('{}\n'.format(byproduct_src))
 
     if args.mode != 'test' or args.with_class:
-        with open(os.path.join(save_dir, '{}sideprod_src-{}_with_class.txt'.format(save_name, set_name)), 'w') as f:
+        with open(os.path.join(save_dir, '{}byproduct_src-{}_with_class.txt'.format(save_name, set_name)), 'w') as f:
             for use_class_src in use_class_src_data:
                 f.write('{}\n'.format(use_class_src))
 
-    return src_data, tgt_data, sideprod_src_data
+    return src_data, tgt_data, byproduct_src_data
 
 
 def find_lcs_len(s1, s2):
@@ -1565,7 +1564,7 @@ def single_process(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
     reactant = data['reactant']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     rea_mol = Chem.MolFromSmiles(reactant)
@@ -1576,9 +1575,9 @@ def single_process(data):
         "status": 0,
         "src_data": [],
         "tgt_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
         "edit_distance": 0,
-        "sideprod_edit_distance": 0,
+        "byproduct_edit_distance": 0,
     }
 
     if "" == product:
@@ -1680,67 +1679,67 @@ def single_process(data):
                 rea_smi = ".".join(rea_smi)
                 return_status['src_data'].append(smi_tokenizer(pro_smi))
                 return_status['tgt_data'].append(smi_tokenizer(rea_smi))
-        if sideprod not in ['<eos>', '<unk>']:
-            sideprod_mol = Chem.MolFromSmiles(sideprod)
+        if byproduct not in ['<eos>', '<unk>']:
+            byproduct_mol = Chem.MolFromSmiles(byproduct)
             for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
-                sideprod_edit_distances = []
+                byproduct_edit_distances = []
                 min_dis = 10000
-                min_sideprod = ''
-                min_sideprod_list = []
+                min_byproduct = ''
+                min_byproduct_list = []
                 max_lcs_list = []
-                if '.' in sideprod:
-                    sideprod_list = sideprod.split('.')
-                    lenth = len(sideprod_list)
-                    sideprod_smi_list = [[] for _ in range(lenth)]
+                if '.' in byproduct:
+                    byproduct_list = byproduct.split('.')
+                    lenth = len(byproduct_list)
+                    byproduct_smi_list = [[] for _ in range(lenth)]
                     for n in range(lenth):
-                        for n1 in range(Chem.MolFromSmiles(sideprod_list[n]).GetNumAtoms()):
-                            sideprod_smi_list[n].append(
-                                clear_map_canonical_smiles(sideprod_list[n], canonical=True, root=n1))
-                    # sideprod_comb_list = combine(sideprod_smi_list)
-                    sideprod_comb_list = list(itertools.product(*sideprod_smi_list))
-                    sideprod_comb_list = [('.').join(list(sideprod_comb)) for sideprod_comb in sideprod_comb_list]
-                    for sideprod_smi in list(set(sideprod_comb_list)):
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                        for n1 in range(Chem.MolFromSmiles(byproduct_list[n]).GetNumAtoms()):
+                            byproduct_smi_list[n].append(
+                                clear_map_canonical_smiles(byproduct_list[n], canonical=True, root=n1))
+                    # byproduct_comb_list = combine(byproduct_smi_list)
+                    byproduct_comb_list = list(itertools.product(*byproduct_smi_list))
+                    byproduct_comb_list = [('.').join(list(byproduct_comb)) for byproduct_comb in byproduct_comb_list]
+                    for byproduct_smi in list(set(byproduct_comb_list)):
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance < min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
+                            min_byproduct = byproduct_smi
                         elif distance == min_dis:
-                            min_sideprod_list.append(sideprod_smi)
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct_list.append(byproduct_smi)
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    sideprod_edit_distances.append(min_dis)
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    byproduct_edit_distances.append(min_dis)
                 else:
-                    for i in range(sideprod_mol.GetNumAtoms()):
-                        sideprod_smi = clear_map_canonical_smiles(sideprod, canonical=True, root=i)
-                        sideprod_src = src.split()
-                        sideprod_src.append('.')
-                        sideprod_src.extend(smi_tokenizer(sideprod_smi).split())
-                        distance = textdistance.levenshtein.distance(sideprod_src, tgt.split())
+                    for i in range(byproduct_mol.GetNumAtoms()):
+                        byproduct_smi = clear_map_canonical_smiles(byproduct, canonical=True, root=i)
+                        byproduct_src = src.split()
+                        byproduct_src.append('.')
+                        byproduct_src.extend(smi_tokenizer(byproduct_smi).split())
+                        distance = textdistance.levenshtein.distance(byproduct_src, tgt.split())
                         if distance <= min_dis:
                             min_dis = distance
-                            min_sideprod = sideprod_smi
-                    min_sideprod_list.append(min_sideprod)
-                    for i in min_sideprod_list:
+                            min_byproduct = byproduct_smi
+                    min_byproduct_list.append(min_byproduct)
+                    for i in min_byproduct_list:
                         lcs_lenth = find_lcs_len(i, tgt.replace(' ', ''))
                         max_lcs_list.append(lcs_lenth)
-                    assert len(max_lcs_list) == len(min_sideprod_list)
-                    min_sideprod = min_sideprod_list[max_lcs_list.index(max(max_lcs_list))]
-                    sideprod_src = src.replace(' ', '') + '.' + min_sideprod
-                    return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
-                    sideprod_edit_distances.append(min_dis)
+                    assert len(max_lcs_list) == len(min_byproduct_list)
+                    min_byproduct = min_byproduct_list[max_lcs_list.index(max(max_lcs_list))]
+                    byproduct_src = src.replace(' ', '') + '.' + min_byproduct
+                    return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
+                    byproduct_edit_distances.append(min_dis)
                 assert min_dis < 10000
-                return_status['sideprod_edit_distance'] = np.mean(sideprod_edit_distances)
+                return_status['byproduct_edit_distance'] = np.mean(byproduct_edit_distances)
         else:
-            return_status['sideprod_src_data'] = return_status['src_data']
+            return_status['byproduct_src_data'] = return_status['src_data']
         edit_distances = []
         for src, tgt in zip(return_status['src_data'], return_status['tgt_data']):
             edit_distances.append(textdistance.levenshtein.distance(src.split(), tgt.split()))
@@ -1750,7 +1749,7 @@ def single_process(data):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='USPTO_50K')
+    parser.add_argument("--task_dataset", type=str, default="USPTO-50K")
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--sample', type=str, default='prob', choices=['prob', 'random', 'cano'])
     parser.add_argument("--augmentation", type=int, default=20)
@@ -1760,7 +1759,6 @@ def get_args():
     parser.add_argument("--character", action="store_true")
     parser.add_argument("--canonical", action="store_true")
     parser.add_argument("--topn", type=int, default=10)
-    parser.add_argument("--exp_id", type=str, default="")
     args = parser.parse_args()
 
     return args
@@ -1768,10 +1766,10 @@ def get_args():
 
 if __name__ == '__main__':
     args = get_args()
-    print('preprocessing dataset {}...'.format(args.dataset))
-    lcs_side_prob_dict_file = os.path.join(r'../%s' % args.exp_id, r'dataset/stage_two/lcs_side_prob.dict')
-    datadir = os.path.join(r'../%s' % args.exp_id, r'dataset/stage_one')
-    resultsdir = os.path.join(r'../%s' % args.exp_id, r'results/stage_one/with_class') if args.with_class else os.path.join(r'../%s' % args.exp_id, r'results/stage_one/without_class')
+    print('preprocessing dataset {}...'.format(args.task_dataset))
+    lcs_byproduct_prob_dict_file = os.path.join(r'../%s' % args.task_dataset, r'dataset/stage_two/lcs_byproduct_prob.dict')
+    datadir = os.path.join(r'../%s' % args.task_dataset, r'dataset/stage_one')
+    resultsdir = os.path.join(r'../%s' % args.task_dataset, r'results/stage_one/with_class') if args.with_class else os.path.join(r'../%s' % args.task_dataset, r'results/stage_one/without_class')
 
     if args.mode == 'test':
         datasets = ['test', 'eval']
@@ -1782,17 +1780,17 @@ if __name__ == '__main__':
     random.seed(args.seed)
 
     if args.sample == 'prob':
-        if os.path.exists(lcs_side_prob_dict_file):
-            lcs_side_prob_dict = joblib.load(lcs_side_prob_dict_file)
+        if os.path.exists(lcs_byproduct_prob_dict_file):
+            lcs_byproduct_prob_dict = joblib.load(lcs_byproduct_prob_dict_file)
         else:
             print('Compute LCS dictionary from Train dataset')
-            lcs_side = prob_sample_train(args)
-            lcs_side_prob_dict = analyse_save(lcs_side)
+            lcs_byproduct = prob_sample_train(args)
+            lcs_byproduct_prob_dict = analyse_save(lcs_byproduct)
 
-    print('%s select side product SMILES' % args.sample)
+    print('%s select by-product SMILES' % args.sample)
 
     for i, data_set in enumerate(datasets):
-        csv_path = '%s/%s/side_product_rxn_%s.csv' % (datadir, data_set, data_set)
+        csv_path = '%s/%s/byproduct_rxn_%s.csv' % (datadir, data_set, data_set)
         csv = pd.read_csv(csv_path)
         reaction_list = list(csv["reactants>reagents>production"])
         reaction_list = np.repeat(np.array(reaction_list), args.topn).tolist()
@@ -1800,19 +1798,19 @@ if __name__ == '__main__':
         rxns_class_list = np.repeat(np.array(rxns_class_list), args.topn).tolist()
 
         if data_set == 'train':
-            side_topn_list = list(csv["sideprod"])
+            byproduct_topn_list = list(csv["byproduct"])
         else:
             if args.topn == 1:
-                side_topn_list = list(csv["sideprod"])
+                byproduct_topn_list = list(csv["byproduct"])
             else:
                 with open(os.path.join(resultsdir, '%s_top%s_smiles.txt' % (data_set, args.topn)), 'r+') as f:
-                    side_topn_list = f.readlines()
-                    side_topn_list = [side_topn.strip() for side_topn in side_topn_list]
+                    byproduct_topn_list = f.readlines()
+                    byproduct_topn_list = [byproduct_topn.strip() for byproduct_topn in byproduct_topn_list]
 
-        if data_set == 'test':
-            assert len(side_topn_list) == 5007 * args.topn
-        elif data_set == 'eval':
-            assert len(side_topn_list) == 5001 * args.topn
+        # if data_set == 'test':
+        #     assert len(byproduct_topn_list) == 5007 * args.topn
+        # elif data_set == 'eval':
+        #     assert len(byproduct_topn_list) == 5001 * args.topn
 
         reactant_smarts_list = list(
             map(lambda x: x.split('>')[0], reaction_list))
@@ -1824,18 +1822,18 @@ if __name__ == '__main__':
             map(lambda x: x.split('>')[2], reaction_list))
         product_smarts_list = list(
             map(lambda x: x.split(' ')[0], product_smarts_list))  # remove ' |f:1...'
-        sideprod_smarts_list = side_topn_list
+        byproduct_smarts_list = byproduct_topn_list
 
         print("Total Data Size", len(reaction_list))
 
         sub_react_list = reactant_smarts_list
         sub_prod_list = product_smarts_list
-        sub_sideprod_list = sideprod_smarts_list
+        sub_byproduct_list = byproduct_smarts_list
 
-        src_data, tgt_data, sideprod_src_data = preprocess(
+        src_data, tgt_data, byproduct_src_data = preprocess(
             sub_react_list,
             sub_prod_list,
-            sub_sideprod_list,
+            sub_byproduct_list,
             rxns_class_list,
             data_set,
         )

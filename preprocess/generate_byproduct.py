@@ -14,7 +14,7 @@ from collections import Counter
 cur_path = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.join(cur_path, '../'))
 from Codes.mol_info import Label_Vocab, BOND_TYPES, BOND_FLOAT_TO_TYPE, SINGLE_ATTACH
-from Codes.mol_info import MAX_VALENCE
+from Codes.mol_info import MAX_VALENCE,VALENCE_CHECK
 
 
 class RxnElement:
@@ -139,15 +139,15 @@ def generate_og_to_new_dict():
     if not os.path.exists(r'og_to_new.dict'):
         og_to_new = {}
         new = []
-        if not os.path.exists(r'new_side_smiles.txt'):
-            print('Please rerun after downloading or modifying the original side product text(og_side_smiles.txt) '
-                  'and rename it as new_side_smiles.txt ')
+        if not os.path.exists(r'new_byproduct_smiles.txt'):
+            print('Please rerun after downloading or modifying the original by-product text(og_byproduct_smiles.txt) '
+                  'and rename it as new_byproduct_smiles.txt ')
             exit(0)
-        with open(r'new_side_smiles.txt', 'r+') as r:
+        with open(r'new_byproduct_smiles.txt', 'r+') as r:
             for line in r.readlines():
                 new.append(line.strip())
         og = []
-        with open(r'og_side_smiles.txt', 'r+') as r:
+        with open(r'og_byproduct_smiles.txt', 'r+') as r:
             for line in r.readlines():
                 og.append(line.strip())
         for i, j in zip(og, new):
@@ -354,10 +354,55 @@ def apply_edits_to_mol(mol: Chem.Mol, edits) -> Chem.Mol:
 
     return pred_mol
 
+def fix_endpoint(atom, verbose=False):
+    explicit_bonds = int(sum([b.GetBondTypeAsDouble() for b in atom.GetBonds()]))
+    explicit_hs = atom.GetNumExplicitHs()
+    atom_symbol = atom.GetSymbol()
+    charge = atom.GetFormalCharge()
+
+    if verbose:
+        print("Atom is", atom_symbol, "with",
+              charge, "charge,",
+              explicit_bonds, "bonds,",
+              explicit_hs, "explicit Hs")
+
+    while atom_symbol in MAX_VALENCE and explicit_bonds + explicit_hs > MAX_VALENCE[atom_symbol]:
+        if explicit_hs > 0:
+            explicit_hs -= 1
+            atom.SetNumExplicitHs(explicit_hs)
+        else:
+            charge += 1
+            atom.SetFormalCharge(charge)
+        explicit_bonds = int(sum([b.GetBondTypeAsDouble() for b in atom.GetBonds()]))
+        explicit_hs = atom.GetNumExplicitHs()
+        atom_symbol = atom.GetSymbol()
+        charge = atom.GetFormalCharge()
+
+    # Valence constraint isn't exactly the same as the max bonds constraint...
+    while atom_symbol in VALENCE_CHECK and charge + explicit_hs + explicit_bonds > VALENCE_CHECK[atom_symbol]:
+
+        if explicit_hs > 0:
+            # if there are hydrogens, drop them
+            explicit_hs -= 1
+            atom.SetNumExplicitHs(explicit_hs)
+        elif charge > 0:
+            charge -= 1  # remove an electron by stripping charge
+            atom.SetFormalCharge(charge)
+        explicit_bonds = int(sum([b.GetBondTypeAsDouble() for b in atom.GetBonds()]))
+        explicit_hs = atom.GetNumExplicitHs()
+        atom_symbol = atom.GetSymbol()
+        charge = atom.GetFormalCharge()
+
+    if verbose:
+        print("Atom is", atom_symbol, "with",
+              charge, "charge,",
+              explicit_bonds, "bonds,",
+              explicit_hs, "explicit Hs")
+
 
 def canonicalize(smiles):
     try:
-        tmp = Chem.MolFromSmiles(smiles)
+        tmp = Chem.MolFromSmiles(smiles,sanitize=False)
     except:
         print('no mol', flush=True)
         return smiles
@@ -365,16 +410,19 @@ def canonicalize(smiles):
         return smiles
     tmp = Chem.RemoveHs(tmp)
     [a.ClearProp('molAtomMapNumber') for a in tmp.GetAtoms()]
+    # [a.SetNumExplicitHs(0) for a in tmp.GetAtoms()]
     return Chem.MolToSmiles(tmp)
 
 
-def attach_groups(prod_smi, lg_groups, lg_groups_map, attach_info):
+def attach_groups(prod_smi, lg_groups, lg_groups_map, attach_info, core_edits):
     try:
         tmp_mol = Chem.MolFromSmiles(prod_smi)
         aromatic_co_adj_n = set()
         aromatic_co = set()
         aromatic_cs = set()
         aromatic_cn = set()
+        x, y, prev_bo, new_bo = core_edits[0].split(":")
+        prev_bo = float(prev_bo)
 
         for atom in tmp_mol.GetAtoms():
             if atom.GetSymbol() == 'C':
@@ -412,7 +460,7 @@ def attach_groups(prod_smi, lg_groups, lg_groups_map, attach_info):
             for idx, lg_group in enumerate(lg_groups):
                 if lg_group != "<eos>" and lg_group != 'c1c[n:1]cn1.c1c[n:1]cn1':
                     lg_mol_map = Chem.MolFromSmiles(lg_groups_map[idx])
-                    bt.append(Chem.BondType.SINGLE if lg_groups[idx] in SINGLE_ATTACH else Chem.BondType.DOUBLE)
+                    bt.append(Chem.BondType.SINGLE if (lg_groups[idx] in SINGLE_ATTACH or prev_bo == 1.0) else Chem.BondType.DOUBLE)
                     for atom in lg_mol_map.GetAtoms():
                         if atom.GetAtomMapNum() == 999:
                             atom.SetAtomMapNum(lg_start)
@@ -491,12 +539,11 @@ def attach_groups(prod_smi, lg_groups, lg_groups_map, attach_info):
                         else:
                             raise ValueError("i can`t believe it")
                 else:
-                    a = 1
                     print('error!!!!')
                     raise ValueError("error !!!!!!")
 
-        side_prod_mol = rw_mol.GetMol()
-        for atom in side_prod_mol.GetAtoms():
+        byproduct_mol = rw_mol.GetMol()
+        for atom in byproduct_mol.GetAtoms():
             if atom.GetSymbol() == 'N':
                 if not atom.GetIsAromatic():
                     bond_vals = sum([bond.GetBondTypeAsDouble() for bond in atom.GetBonds()])
@@ -565,11 +612,11 @@ def attach_groups(prod_smi, lg_groups, lg_groups_map, attach_info):
                 if bond_vals >= MAX_VALENCE[atom.GetSymbol()]:
                     atom.SetNumExplicitHs(0)
 
-        side_prod_smi = Chem.MolToSmiles(side_prod_mol)
-        cano_smi = canonicalize(side_prod_smi)
+        byproduct_smi = Chem.MolToSmiles(byproduct_mol)
+        cano_smi = canonicalize(byproduct_smi)
         return cano_smi
     except:
-        return '', ''
+        return '<eos>'
 
 
 def get_mol_list(p, r, core_edits, idx=0):
@@ -696,7 +743,7 @@ def map_reac_and_frag(reac_mols, frag_mols):
     return new_reac, new_frag
 
 
-def extract_leaving_groups_for_sideprod(mol_list):
+def extract_leaving_groups_for_byproduct(mol_list):
     """Extracts leaving groups from a product-fragment-reactant tuple.
 
     Parameters
@@ -707,11 +754,20 @@ def extract_leaving_groups_for_sideprod(mol_list):
     for mol_tuple in mol_list:
         p_mol, reac_mols, frag_mols = mol_tuple
 
+        map_start = 500
+        for reac in reac_mols:
+            for atom in reac.GetAtoms():
+                if atom.GetAtomMapNum() == 0:
+                    atom.SetAtomMapNum(map_start)
+                    map_start += 1
+
         reac_mols, frag_mols = map_reac_and_frag(reac_mols, frag_mols)
 
         r_mol = Chem.Mol()
         for mol in reac_mols:
             r_mol = Chem.CombineMols(r_mol, Chem.Mol(mol))
+
+
 
         for atom in p_mol.GetAtoms():
             atom.SetNumExplicitHs(0)
@@ -845,15 +901,17 @@ def get_reaction_core(r: str, p: str, kekulize: bool = False, use_h_labels: bool
     return rxn_core, core_edits
 
 
-def generate_sideprod_smiles(rxn_smiles):
+def generate_byproduct_smiles(rxn_smiles):
+    # if rxn_smiles == 'Br[c:2]1[cH:3][n:4][c:5]([O:12][c:13]2[cH:14][cH:15][c:16]([F:19])[cH:17][cH:18]2)[c:6]([C:7](=[O:8])[O:9][CH3:10])[cH:11]1.[Na][C:21]#[N:22]>>[c:2]1([C:21]#[N:22])[cH:3][n:4][c:5]([O:12][c:13]2[cH:14][cH:15][c:16]([F:19])[cH:17][cH:18]2)[c:6]([C:7](=[O:8])[O:9][CH3:10])[cH:11]1':
+    #     a = 1
     r, p = rxn_smiles.split('>>')
     rxn_core, core_edits = get_reaction_core(r, p, kekulize=True, use_h_labels=True)
     mol_list = get_mol_list(p, r, core_edits)
-    lg_groups, lg_groups_map, attach_info = extract_leaving_groups_for_sideprod(mol_list)
+    lg_groups, lg_groups_map, attach_info = extract_leaving_groups_for_byproduct(mol_list)
     if list(set(lg_groups)) == ['<eos>']:
         return '<eos>'
-    cano_side_smiles = attach_groups(p, lg_groups, lg_groups_map, attach_info)
-    return cano_side_smiles
+    cano_byproduct_smiles = attach_groups(p, lg_groups, lg_groups_map, attach_info,core_edits)
+    return cano_byproduct_smiles
 
 
 def multi_process(data):
@@ -861,12 +919,24 @@ def multi_process(data):
     idx = data['idx']
     rxn = data['rxn']
     rxn_class = data['class']
-    cano_side_smiles = generate_sideprod_smiles(rxn)
+    cano_byproduct_smiles = generate_byproduct_smiles(rxn)
 
     results = {
         "idx": idx,
-        "cano_side_smiles": cano_side_smiles,
+        "cano_byproduct_smiles": cano_byproduct_smiles,
         "new_class": rxn_class,
+    }
+    return results
+
+def multi_process_MIT(data):
+    global csv
+    idx = data['idx']
+    rxn = data['rxn']
+    cano_byproduct_smiles = generate_byproduct_smiles(rxn)
+
+    results = {
+        "idx": idx,
+        "cano_byproduct_smiles": cano_byproduct_smiles,
     }
     return results
 
@@ -878,92 +948,101 @@ def descend_cano_smiles(cano_smiles_list):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp_id", type=str, default="")
+    # parser.add_argument("--exp_id", type=str, default="")
     parser.add_argument("--processes", type=int, default=multiprocessing.cpu_count())
+    parser.add_argument("--task_dataset", type=str, default="USPTO-50K")
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = get_args()
-    os.makedirs(os.path.join(os.getcwd(), '../%s/dataset/stage_one' % args.exp_id), exist_ok=True)
-    os.chdir(os.path.join(os.getcwd(), '../%s/dataset/stage_one' % args.exp_id))
+    os.makedirs(os.path.join(os.getcwd(), '../%s/dataset/stage_one' % args.task_dataset), exist_ok=True)
+    os.chdir(os.path.join(os.getcwd(), '../%s/dataset/stage_one' % args.task_dataset))
     data_set = ['train', 'eval', 'test', ]
-    og_side_smiles_file = r'og_side_smiles.txt'
-    descend_side_file = r'descend_side_smiles.txt'
-    side_label_dict_file = 'side_smiles_to_label.dict'
+    og_byproduct_smiles_file = r'og_byproduct_smiles.txt'
+    descend_byproduct_file = r'descend_byproduct_smiles.txt'
+    byproduct_label_dict_file = 'byproduct_smiles_to_label.dict'
 
     for data_name in data_set:
-        if not os.path.exists('%s/side_product_rxn_%s.csv' % (data_name, data_name)):
+        if not os.path.exists('%s/byproduct_rxn_%s.csv' % (data_name, data_name)):
             data_path = r'%s/canonicalized_%s.csv' % (data_name, data_name)
             csv = pd.read_csv(data_path)
             rxn_list = csv['reactants>reagents>production'].tolist()
-            class_list = csv['class'].tolist()
-            data = [{
-                'idx': idx,
-                'rxn': rxn,
-                'class': rxn_class
-            } for idx, rxn, rxn_class in zip(list(range(len(rxn_list))), rxn_list, class_list)]
-            with multiprocessing.Pool(processes=args.processes) as pool:
-                results = list(tqdm(pool.imap(multi_process, data), total=len(data)))
+            if args.task_dataset == 'USPTO-MIT':
+                data = [{
+                    'idx': idx,
+                    'rxn': rxn,
+                } for idx, rxn in zip(list(range(len(rxn_list))), rxn_list)]
+                with multiprocessing.Pool(processes=args.processes) as pool:
+                    results = list(tqdm(pool.imap(multi_process_MIT, data), total=len(data)))
+            else:
+                class_list = csv['class'].tolist()
+                data = [{
+                    'idx': idx,
+                    'rxn': rxn,
+                    'class': rxn_class
+                } for idx, rxn, rxn_class in zip(list(range(len(rxn_list))), rxn_list, class_list)]
+                with multiprocessing.Pool(processes=args.processes) as pool:
+                    results = list(tqdm(pool.imap(multi_process, data), total=len(data)))
             pool.close()
             pool.join()
-            cano_side_smiles_list = []
+            cano_byproduct_smiles_list = []
             new_rxn_list = []
             new_class_list = []
             for result in results:
-                cano_side_smiles_list.append(result['cano_side_smiles'])
-                # new_rxn_list.append(result['new_rxn'])
-                new_class_list.append(result['new_class'])
+                cano_byproduct_smiles_list.append(result['cano_byproduct_smiles'])
+                if args.task_dataset != 'USPTO-MIT':
+                    new_class_list.append(result['new_class'])
 
             df = pd.DataFrame()
-            assert len(new_class_list) == len(cano_side_smiles_list) == len(rxn_list)
             df['reactants>reagents>production'] = rxn_list
 
-            df['class'] = new_class_list
+            if args.task_dataset != 'USPTO-MIT':
+                df['class'] = new_class_list
             df['product'] = [rxn.split('>>')[1] for rxn in rxn_list]
 
-            if data_name == 'train' and not os.path.exists(side_label_dict_file):
-                descend_og_labels_list = descend_cano_smiles(cano_side_smiles_list)
+            if data_name == 'train' and not os.path.exists(byproduct_label_dict_file):
+                descend_og_labels_list = descend_cano_smiles(cano_byproduct_smiles_list)
                 assert '' not in descend_og_labels_list
 
-                if not os.path.exists(descend_side_file):
-                    with open(og_side_smiles_file, 'w+') as n:
+                if not os.path.exists(descend_byproduct_file):
+                    with open(og_byproduct_smiles_file, 'w+') as n:
                         for i in descend_og_labels_list:
                             n.writelines(i)
                             n.write('\n')
                     og_to_new = generate_og_to_new_dict()
-                    new_side_smiles_list = [og_to_new.get(i) for i in cano_side_smiles_list]
-                    descend_new_labels_list = descend_cano_smiles(new_side_smiles_list)
-                    with open(descend_side_file, 'w+') as n:
+                    new_byproduct_smiles_list = [og_to_new.get(i) for i in cano_byproduct_smiles_list]
+                    descend_new_labels_list = descend_cano_smiles(new_byproduct_smiles_list)
+                    with open(descend_byproduct_file, 'w+') as n:
                         for i in descend_new_labels_list:
                             n.writelines(i)
                             n.write('\n')
                 else:
                     descend_new_labels_list = []
-                    with open(descend_side_file, 'r+') as r:
+                    with open(descend_byproduct_file, 'r+') as r:
                         for line in r.readlines():
                             descend_new_labels_list.append(line.strip())
 
                 label_dict = Label_Vocab(descend_new_labels_list)
 
-                joblib.dump(label_dict, side_label_dict_file)
+                joblib.dump(label_dict, byproduct_label_dict_file)
                 print(descend_new_labels_list)
                 print(len(descend_new_labels_list))
             else:
-                label_dict = joblib.load(side_label_dict_file)
+                label_dict = joblib.load(byproduct_label_dict_file)
             og_to_new = generate_og_to_new_dict()
-            cano_side_smiles_list = [og_to_new.get(i, '<eos>') for i in cano_side_smiles_list]
+            cano_byproduct_smiles_list = [og_to_new.get(i, '<eos>') for i in cano_byproduct_smiles_list]
             labels_list = [label_dict.get(cano_smiles, label_dict.get('<eos>')) for cano_smiles
-                           in cano_side_smiles_list]
+                           in cano_byproduct_smiles_list]
             df['label'] = labels_list
-            df['sideprod'] = cano_side_smiles_list
-            for idx, cano_side_smiles in enumerate(cano_side_smiles_list):
-                if cano_side_smiles is not '<eos>':
-                    new_rxn = rxn_list[idx] + '.' + cano_side_smiles
+            df['byproduct'] = cano_byproduct_smiles_list
+            for idx, cano_byproduct_smiles in enumerate(cano_byproduct_smiles_list):
+                if cano_byproduct_smiles is not '<eos>':
+                    new_rxn = rxn_list[idx] + '.' + cano_byproduct_smiles
                 else:
                     new_rxn = rxn_list[idx]
                 new_rxn_list.append(new_rxn)
             df['rxn_smiles'] = new_rxn_list
-            df.to_csv('%s/side_product_rxn_%s.csv' % (data_name, data_name), index=False)
+            df.to_csv('%s/byproduct_rxn_%s.csv' % (data_name, data_name), index=False)
         else:
-            print('side_product_rxn_%s.csv already exists !' % data_name)
+            print('byproduct_rxn_%s.csv already exists !' % data_name)
