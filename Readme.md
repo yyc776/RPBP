@@ -42,48 +42,41 @@ It is for review only. Do not propagate.Thank you very much.
 
     cd ..
   * 2.1: Predict by-product  
-  
-
-    python predict_byproduct.py --epoch_sample True
-    python predict_byproduct.py --epoch_sample True --with_class 
+ 
+        python predict_byproduct.py --epoch_sample True
+        python predict_byproduct.py --epoch_sample True --with_class 
     
 ### Step 3: Stage-Two Data preparation
     cd preprocess
   * 3.1: Generate data for the training stage two model
   
-
-    python generate_inputs_for_stage_two.py 
-  * 3.2: Process the prediction results of the stage one to input the trained stage two model  
+        python generate_inputs_for_stage_two.py 
+  * 3.2: Process the prediction results of the stage-one to input the trained stage-two model  
   
+        python generate_inputs_for_stage_two.py --mode test
+        python generate_inputs_for_stage_two.py --mode test --with_class
 
-    python generate_inputs_for_stage_two.py --mode test
-    python generate_inputs_for_stage_two.py --mode test --with_class
 
-
-### Step 4: Train model of stage two and translate reactants  
+### Step 4: Train model of stage-two and translate reactants  
     cd ..
     mkdir -p USPTO-50K/results/stage_two/without_class
     mkdir -p USPTO-50K/results/stage_two/with_class
   * 4.1: Build vocab  
   
-
-    onmt_build_vocab --config  USPTO-50K/yaml/without_class/PtoR-50K-aug20-build_vocab.yml
-    onmt_build_vocab --config  USPTO-50K/yaml/with_class/PtoR-50K-aug20-build_vocab.yml
+        onmt_build_vocab --config  USPTO-50K/yaml/without_class/PtoR-50K-aug20-build_vocab.yml
+        onmt_build_vocab --config  USPTO-50K/yaml/with_class/PtoR-50K-aug20-build_vocab.yml
   * 4.2: Train model of stage-two  
   
-
-    onmt_train --config USPTO-50Kyaml/without_class/PtoR-50K-aug20-config.yml
-    onmt_train --config USPTO-50Kyaml/with_class/PtoR-50K-aug20-config.yml
+        onmt_train --config USPTO-50Kyaml/without_class/PtoR-50K-aug20-config.yml
+        onmt_train --config USPTO-50Kyaml/with_class/PtoR-50K-aug20-config.yml
   * 4.3: Average model  
   
-
-    sh USPTO-50K/yaml/without_class/PtoR-50K-aug20-average.sh
-    sh USPTO-50K/yaml/with_class/PtoR-50K-aug20-average.sh
+        sh USPTO-50K/yaml/without_class/PtoR-50K-aug20-average.sh
+        sh USPTO-50K/yaml/with_class/PtoR-50K-aug20-average.sh
   * 4.4: Translate reactants  
   
-
-    onmt_translate --config USPTO-50K/yaml/without_class/PtoR-50K-aug20-translate.yml -with_score
-    onmt_translate --config USPTO-50K/yaml/with_class/PtoR-50K-aug20-translate.yml -with_score	  
+        onmt_translate --config USPTO-50K/yaml/without_class/PtoR-50K-aug20-translate.yml -with_score
+        onmt_translate --config USPTO-50K/yaml/with_class/PtoR-50K-aug20-translate.yml -with_score	  
 
 
 ### Step 5: Score
