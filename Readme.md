@@ -22,7 +22,7 @@ It is for review only. Do not propagate.Thank you very much.
     conda install networkx
 
 ## Workflow
-### Step 1:  Stage-One Data preparation  
+### Step 1:  Stage-one data preparation  
   
 
     cd preprocess
@@ -46,7 +46,7 @@ It is for review only. Do not propagate.Thank you very much.
         python predict_byproduct.py --epoch_sample True
         python predict_byproduct.py --epoch_sample True --with_class 
     
-### Step 3: Stage-Two Data preparation
+### Step 3: Stage-two data preparation
     cd preprocess
   * 3.1: Generate data for the training stage two model
   
