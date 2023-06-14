@@ -1,5 +1,5 @@
-#Input your own SMILES for side product prediction and
-# data enhancement in preparation for input stagw two
+#Input your own SMILES for by-product prediction and
+# data enhancement in preparation for input stage-two
 
 
 import os
@@ -13,7 +13,7 @@ import itertools
 import joblib
 
 from Codes.utils import snapshot, str2bool, get_label_dict, check_model, compute_topn_acc
-from Codes.model import SideModel, Trainer
+from Codes.model import ByproductModel, Trainer
 from Codes.data import RetroTestDatasets
 from Codes.data import collate_pre, collate_emb
 from Codes.embedder import Embedder
@@ -34,14 +34,14 @@ def add_map(product):
 def multi_process(data):
     pt = re.compile(r':(\d+)]')
     product = data['product']
-    sideprod = data['sideprod']
+    byproduct = data['byproduct']
     augmentation = data['augmentation']
     pro_mol = Chem.MolFromSmiles(product)
     """checking data quality"""
     return_status = {
         "status": 0,
         "src_data": [],
-        "sideprod_src_data": [],
+        "byproduct_src_data": [],
     }
     pro_atom_map_numbers = list(map(int, re.findall(r"(?<=:)\d+", product)))
     if len(pro_atom_map_numbers) == 0:
@@ -75,29 +75,29 @@ def multi_process(data):
 
     assert len(return_status['src_data']) == data['augmentation']
 
-    if sideprod not in ['<eos>']:
+    if byproduct not in ['<eos>']:
         for src in return_status['src_data']:
             try:
-                side_prob_dict = lcs_side_prob_dict[sideprod]
-                weights = list(side_prob_dict.values())
-                random_sideprod = \
-                    random.choices(list(side_prob_dict.keys()), weights=weights, k=1)[-1]
+                byproduct_prob_dict = lcs_byproduct_prob_dict[byproduct]
+                weights = list(byproduct_prob_dict.values())
+                random_byproduct = \
+                    random.choices(list(byproduct_prob_dict.keys()), weights=weights, k=1)[-1]
             except:
-                random_sideprod = sideprod
-            sideprod_src = src.replace(' ', '') + '.' + random_sideprod
-            return_status['sideprod_src_data'].append(smi_tokenizer(sideprod_src))
+                random_byproduct = byproduct
+            byproduct_src = src.replace(' ', '') + '.' + random_byproduct
+            return_status['byproduct_src_data'].append(smi_tokenizer(byproduct_src))
     else:
-        return_status['sideprod_src_data'] = return_status['src_data']
+        return_status['byproduct_src_data'] = return_status['src_data']
 
     return return_status
 
 
-def run_side_model(args):
+def run_byproduct_model(args):
     self = Embedder(args)
     args.nclass = self.nclass
     args.sep_point = self.sep_point
 
-    model = SideModel(args, device=self.args.device).to(self.args.device)
+    model = ByproductModel(args, device=self.args.device).to(self.args.device)
     trainer = Trainer(model, args, device=self.args.device)
 
     print(f"Converting model to device: {self.args.device}")
@@ -145,27 +145,27 @@ def run_side_model(args):
                 f.write('{}\n'.format(scores))
 
         prod_list = np.repeat(np.array(smiles_list), args.topn).tolist()
-        sideprod_list = Topn_Smiles
+        byproduct_list = Topn_Smiles
         augmentation = args.augmentation
         data = [{
             "product": p,
-            "sideprod": sp,
+            "byproduct": bp,
             "augmentation": augmentation,
-        } for p, sp in zip(prod_list, sideprod_list)]
+        } for p, bp in zip(prod_list, byproduct_list)]
 
         with multiprocessing.Pool(processes=1) as pool:
             results = list(tqdm(pool.imap(multi_process, data), total=len(data)))
         pool.close()
         pool.join()
-        sideprod_src_data = []
+        byproduct_src_data = []
         for result in tqdm(results):
             if result['status'] != 0:
                 continue
-            sideprod_src_data.extend(result['sideprod_src_data'])
+            byproduct_src_data.extend(result['byproduct_src_data'])
 
-        with open('sideprod_src-test.txt', 'w') as f:
-            for sideprod_src in sideprod_src_data:
-                f.write('{}\n'.format(sideprod_src))
+        with open('byproduct_src-test.txt', 'w') as f:
+            for byproduct_src in byproduct_src_data:
+                f.write('{}\n'.format(byproduct_src))
 
     else:
         print('Chose True path !!!', flush=True)
@@ -206,7 +206,7 @@ def get_args():
     parser.add_argument('--topn', type=float, default=10)
     parser.add_argument('--gpu', type=str, default=0)
 
-    parser.add_argument("--exp_id", type=str, default="")
+    parser.add_argument("--task_dataset", type=str, default="USPTO-50K")
     parser.add_argument("--save_root", default=r'save_model/stage_one/without_class')
     parser.add_argument("--data_path", default='')
 
@@ -216,9 +216,9 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    args.save_root = os.path.join(args.exp_id, args.save_root)
+    args.save_root = os.path.join(args.task_dataset, args.save_root)
     args.data_path = r'f7-7.smi' if args.data_path == '' else args.data_path
     print(args)
-    lcs_side_prob_dict_file = r'dataset/stage_two/lcs_side_prob.dict'
-    lcs_side_prob_dict = joblib.load(lcs_side_prob_dict_file)
-    run_side_model(args)
+    lcs_byproduct_prob_dict_file = r'USPTO-50K/dataset/stage_two/lcs_byproduct_prob.dict'
+    lcs_byproduct_prob_dict = joblib.load(lcs_byproduct_prob_dict_file)
+    run_byproduct_model(args)

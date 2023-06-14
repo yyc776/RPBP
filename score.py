@@ -248,13 +248,13 @@ def main(args):
 
     else:
 
-        data_size = 40006
         if args.targets != "":
             print('Reading targets from file ...')
             with open(args.targets, 'r') as f:
                 lines = f.readlines()
                 # lines = [''.join(line.strip().split(' ')) for line in f.readlines()]
             print("Origin File Length", len(lines))
+            data_size = len(lines) // (args.augmentation * args.stage_one_topn)
             targets = [''.join(lines[i].strip().split(' ')) for i in
                        tqdm(range(0, data_size * args.augmentation * args.stage_one_topn, args.augmentation * args.stage_one_topn))]
 

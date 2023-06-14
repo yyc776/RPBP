@@ -87,8 +87,8 @@ It is for review only. Do not propagate.Thank you very much.
 
 
 ### Step 5: Score
-    python score.py --stage_one_scores USPTO-50K/results/stage_one/without_class/test_top10_scores.txt --predictions USPTO-50K/results/stage_two/without_class/average_model_56-60-results.txt --targets USPTO-50K/results/stage_one/without_class/top10tgt_test.txt
-    python score.py --stage_one_scores USPTO-50K/results/stage_one/with_class/test_top10_scores.txt --predictions USPTO-50K/results/stage_two/with_class/average_model_56-60-results.txt --targets USPTO-50K/results/stage_one/with_class/top10tgt_test.txt
+    python score.py --stage_one_scores USPTO-50K/results/stage_one/without_class/test_top10_scores.txt --predictions USPTO-50K/results/stage_two/without_class/average_model_56-60-results.txt --targets USPTO-50K/dataset/stage_two/without_class/top10_tgt-test.txt
+    python score.py --stage_one_scores USPTO-50K/results/stage_one/with_class/test_top10_scores.txt --predictions USPTO-50K/results/stage_two/with_class/average_model_56-60-results.txt --targets USPTO-50K/dataset/stage_two/with_class/top10_tgt-test.txt
      
 
 
