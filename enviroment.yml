@@ -1,4 +1,4 @@
-name: rpsp
+name: rpbp
 channels:
   - rdkit
   - pytorch

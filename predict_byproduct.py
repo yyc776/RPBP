@@ -6,7 +6,7 @@ from copy import deepcopy
 import pandas as pd
 
 from Codes.utils import snapshot, str2bool, get_label_dict, check_model, compute_topn_acc, compute_class_topn_acc
-from Codes.model import SideModel, Trainer
+from Codes.model import ByproductModel, Trainer
 from Codes.data import RetroLogitsDatasets, HTBatchSampler, EmbDatasets, Upsample
 from Codes.data import collate_pre, collate_emb
 from Codes.embedder import Embedder
@@ -21,24 +21,24 @@ def test_acc(test_dataloader, best_eval_model, args):
     trainer.test_step(test_dataloader, epoch='best_model')
 
 
-def run_side_model(args):
+def run_byproduct_model(args):
     self = Embedder(args)
     args.nclass = self.nclass
     args.sep_point = self.sep_point
 
-    model = SideModel(args, device=self.args.device).to(self.args.device)
+    model = ByproductModel(args, device=self.args.device).to(self.args.device)
     trainer = Trainer(model, args, device=self.args.device)
-    data_root = os.path.join(args.exp_id, r'dataset/stage_one')
+    data_root = os.path.join(args.task_dataset, r'dataset/stage_one')
 
     print(f"Converting model to device: {self.args.device}")
     print("Param Count: ", sum([x.nelement() for x in model.parameters()]) / 10 ** 6, "M", flush=True)
 
     test_data = RetroLogitsDatasets(root=data_root, data_split='test', use_rxn_class=args.with_class)
-    test_dataloader = DataLoader(test_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=0,
+    test_dataloader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False, num_workers=0,
                                  collate_fn=collate_pre)
 
     eval_data = RetroLogitsDatasets(root=data_root, data_split='eval', use_rxn_class=args.with_class)
-    eval_dataloader = DataLoader(eval_data, batch_size=args.batch_size * 2, shuffle=False, num_workers=0,
+    eval_dataloader = DataLoader(eval_data, batch_size=args.batch_size, shuffle=False, num_workers=0,
                                  collate_fn=collate_pre)
     best_eval = 0.
     best_eval_epoch = 0
@@ -64,8 +64,8 @@ def run_side_model(args):
             for epoch in range(1, args.epochs + 1):
                 H_T_sample.set_epoch(epoch)
                 trainer.train_epochsample(train_dataloader, epoch)
-                acc_eval = trainer.test_step(test_dataloader, epoch=epoch, data_name='test')
-                acc_test = trainer.test_step(eval_dataloader, epoch=epoch, data_name='eval')
+                acc_test = trainer.test_step(test_dataloader, epoch=epoch, data_name='test')
+                acc_eval = trainer.test_step(eval_dataloader, epoch=epoch, data_name='eval')
                 trainer.scheduler.step(acc_eval)
 
                 if acc_eval > best_eval:
@@ -87,8 +87,8 @@ def run_side_model(args):
 
             for epoch in range(1, args.epochs + 1):
                 trainer.train_step(train_dataloader, epoch)
-                acc_eval = trainer.test_step(test_dataloader, epoch=epoch, data_name='test')
-                acc_test = trainer.test_step(eval_dataloader, epoch=epoch, data_name='eval')
+                acc_test = trainer.test_step(test_dataloader, epoch=epoch, data_name='test')
+                acc_eval = trainer.test_step(eval_dataloader, epoch=epoch, data_name='eval')
                 trainer.scheduler.step(acc_eval)
 
                 if acc_eval > best_eval:
@@ -145,7 +145,7 @@ def run_side_model(args):
                                     collate_fn=collate_pre)
             trainer = Trainer(best_eval_model, args, device=args.device)
             log_outputs, labels = trainer.test_step(dataloader, epoch='infer_%s' % data_name, data_name=data_name)
-            label_dict = get_label_dict()
+            label_dict = get_label_dict(path=r'USPTO-50K/dataset/stage_one/byproduct_smiles_to_label.dict')
             Topn_Smiles = []
             Topn_Scores = []
             Topn_acc = [0 for _ in range(args.topn)]
@@ -158,13 +158,13 @@ def run_side_model(args):
             for i in range(args.topn):
                 print('Top-{} accuracy: {:.5f}% '.format(i + 1, Topn_acc[i] / len(labels) * 100))
             save_name = 'with_class' if args.with_class else 'without_class'
-            os.makedirs(os.path.join(args.exp_id, r'results/stage_one', save_name), exist_ok=True)
-            with open(os.path.join(args.exp_id, r'results/stage_one', save_name,
+            os.makedirs(os.path.join(args.task_dataset, r'results/stage_one', save_name), exist_ok=True)
+            with open(os.path.join(args.task_dataset, r'results/stage_one', save_name,
                                    '%s_top%s_smiles.txt' % (data_name, args.topn)), 'w+') as f:
                 for smiles in Topn_Smiles:
                     f.write('{}\n'.format(smiles))
 
-            with open(os.path.join(args.exp_id, r'results/stage_one', save_name,
+            with open(os.path.join(args.task_dataset, r'results/stage_one', save_name,
                                    '%s_top%s_scores.txt' % (data_name, args.topn)), 'w+') as f:
                 for scores in Topn_Scores:
                     f.write('{}\n'.format(scores))
@@ -220,8 +220,8 @@ def get_args():
     parser.add_argument("--metric_thresh", default=0.01, type=float)
     parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--alpha', type=float, default=0.9)
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument('--lr_cls', type=float, default=0.00001)
+    parser.add_argument("--lr", default=0.003, type=float)
+    parser.add_argument('--lr_cls', type=float, default=0.00003)
 
     parser.add_argument("--T_split_number", default=0.1, type=float)
     parser.add_argument("--num_workers", default=0)
@@ -243,7 +243,8 @@ def get_args():
     parser.add_argument("--with_class", action="store_true")
     parser.add_argument('--topn', type=float, default=10)
 
-    parser.add_argument("--exp_id", type=str, default="")
+
+    parser.add_argument("--task_dataset", type=str, default="USPTO-50K")
     parser.add_argument("--save_root", default=r'save_model/stage_one/without_class')
 
     args = parser.parse_args()
@@ -255,6 +256,6 @@ if __name__ == "__main__":
     if args.with_class:
         args.n_atom_feat += 10
         args.save_root = r'save_model/stage_one/with_class'
-    args.save_root = os.path.join(args.exp_id, args.save_root)
+    args.save_root = os.path.join(args.task_dataset, args.save_root)
     print(args)
-    run_side_model(args)
+    run_byproduct_model(args)

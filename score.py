@@ -5,9 +5,12 @@ from tqdm import tqdm
 import multiprocessing
 import pandas as pd
 from rdkit import RDLogger
+import pickle
 import re
 import numpy as np
+import csv
 from Codes.utils import is_number, str2bool
+import logging
 
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
@@ -27,6 +30,7 @@ def canonicalize_smiles_clear_map(smiles, return_max_frag=True):
         [atom.ClearProp('molAtomMapNumber') for atom in mol.GetAtoms() if atom.HasProp('molAtomMapNumber')]
         try:
             smi = Chem.MolToSmiles(mol, isomericSmiles=True)
+            smi = Chem.MolToSmiles(Chem.MolFromSmiles(smi),True)
         except:
             if return_max_frag:
                 return '', ''
@@ -141,6 +145,9 @@ def get_args():
     parser.add_argument('--add', type=str2bool, default=True)
     parser.add_argument('--save_file', type=str, default="")
     parser.add_argument('--save_accurate_indices', type=str, default="")
+    parser.add_argument('--re_rank', action="store_true", default=False)
+    parser.add_argument('--dataset', type=str, default="test")
+    parser.add_argument("--task_dataset", type=str, default="USPTO-50K")
 
     if not parser.parse_known_args()[0].score_stage_two or parser.parse_known_args()[0].infer_each_class:
         parser.add_argument('--stage_one_scores', type=str, required=True,
@@ -148,6 +155,7 @@ def get_args():
 
     args = parser.parse_args()
     return args
+
 
 
 def main(args):
@@ -161,7 +169,7 @@ def main(args):
                 args.augmentation * args.beam_size) if args.length == -1 else args.length
         lines = lines[:data_size * (args.augmentation * args.beam_size)]
         Smiles, Scores = [], []
-        for line in lines:
+        for line in tqdm(lines):
             smiles_score = line.split('\t')
             if len(smiles_score) == 1 and is_number(smiles_score[0]):
                 Smiles.append('')
@@ -239,45 +247,8 @@ def main(args):
                           sorted_invalid_rates[i] / data_size / args.augmentation * 100))
 
     else:
-        print('Reading stage one scores')
-        with open(args.stage_one_scores, 'r') as f:
-            first_scores = f.readlines()
-        first_scores = [np.repeat(eval(score), args.augmentation * args.beam_size) for score in first_scores]
-        print('Reading predictions from file ...')
-        with open(args.predictions, 'r') as f:
-            lines = [''.join(line.strip().split(' ')) for line in f.readlines()]
-        print(len(lines))
-        data_size = len(lines) // (
-                    args.augmentation * args.beam_size * args.stage_one_topn) if args.length == -1 else args.length
-        lines = lines[:data_size * (args.augmentation * args.beam_size * args.stage_one_topn)]
-        first_scores = first_scores[:data_size * args.stage_one_topn]
-        first_scores = [j for i in first_scores for j in i]
-        Smiles, Scores = [], []
-        for line in lines:
-            smiles_score = line.split('\t')
-            if len(smiles_score) == 1:
-                Smiles.append('')
-                Scores.append(eval(smiles_score[0]))
-            else:
-                assert len(smiles_score) == 2
-                Smiles.append(smiles_score[0])
-                Scores.append(eval(smiles_score[1]))
-        assert len(Scores) == len(first_scores) == len(Smiles)
-        Scores = [first_score * args.score_beta + second_score for first_score, second_score in zip(first_scores, Scores)]
-        print("Canonicalizing predictions using Process Number ", args.process)
 
-        with multiprocessing.Pool(processes=args.process) as pool:
-            raw_predictions = list(tqdm(pool.imap(canonicalize_smiles_clear_map, Smiles), total=len(Smiles)))
-        pool.close()
-        pool.join()
-
-        predictions = [[] for i in range(data_size)]  # data_len x augmentation x beam_size
-        scores = [[] for i in range(data_size)]
-        for i, (line, score) in enumerate(zip(raw_predictions, Scores)):
-            predictions[i // (args.beam_size * args.augmentation * args.stage_one_topn)].append(line)
-            scores[i // (args.beam_size * args.augmentation * args.stage_one_topn)].append(score)
-
-        print("data size ", data_size)
+        data_size = 40006
         if args.targets != "":
             print('Reading targets from file ...')
             with open(args.targets, 'r') as f:
@@ -286,57 +257,121 @@ def main(args):
             print("Origin File Length", len(lines))
             targets = [''.join(lines[i].strip().split(' ')) for i in
                        tqdm(range(0, data_size * args.augmentation * args.stage_one_topn, args.augmentation * args.stage_one_topn))]
-            pool = multiprocessing.Pool(processes=args.process)
-            targets = pool.map(func=canonicalize_smiles_clear_map, iterable=targets)
+
+            with multiprocessing.Pool(processes=8) as pool:
+                targets = pool.map(func=canonicalize_smiles_clear_map, iterable=targets)
             pool.close()
             pool.join()
             ground_truth = targets
             print("Origin Target Lentgh, ", len(ground_truth))
             print("Cutted Length, ", data_size)
 
+        print('Reading stage one scores')
+        if os.path.exists(r'predictions.pkl') and os.path.exists('scores.pkl'):
+            with open(r'scores.pkl', 'rb') as s:
+                scores = pickle.load(s)
+
+            with open(r'predictions.pkl', 'rb') as r:
+                predictions = pickle.load(r)
+
+            data_size = len(scores) if args.length == -1 else args.length
+
+        else:
+
+            with open(args.stage_one_scores, 'r') as f:
+                first_scores = f.readlines()
+            # idx 23860 and 34873 len(reactant) < 5, delet them
+            # first_scores = first_scores[:238590]+first_scores[238600:348720]+first_scores[348730:]
+            first_scores = [np.repeat(eval(score), args.augmentation * args.beam_size) for score in first_scores]
+
+            print('Reading predictions from file ...')
+            with open(args.predictions, 'r') as f:
+                lines = [''.join(line.strip().split(' ')) for line in tqdm(f.readlines())]
+            data_size = len(lines) // (
+                    args.augmentation * args.beam_size * args.stage_one_topn) if args.length == -1 else args.length
+            print(len(lines))
+            lines = lines[:data_size * (args.augmentation * args.beam_size * args.stage_one_topn)]
+            first_scores = first_scores[:data_size * args.stage_one_topn]
+            first_scores = [j for i in first_scores for j in i]
+            Smiles, Scores = [], []
+            for line in tqdm(lines):
+                smiles_score = line.split('\t')
+                if len(smiles_score) == 1:
+                    Smiles.append('')
+                    Scores.append(eval(smiles_score[0]))
+                else:
+                    assert len(smiles_score) == 2
+                    Smiles.append(smiles_score[0])
+                    Scores.append(eval(smiles_score[1]))
+            assert len(Scores) == len(first_scores) == len(Smiles)
+            Scores = [first_score * args.score_beta + second_score for first_score, second_score in zip(first_scores, Scores)]
+            print("Canonicalizing predictions using Process Number ", args.process)
+
+            with multiprocessing.Pool(processes=4) as pool:
+                raw_predictions = list(tqdm(pool.imap(canonicalize_smiles_clear_map, Smiles), total=len(Smiles)))
+            pool.close()
+            pool.join()
+
+            with open(r'raw_prediction.pkl','wb') as w:
+                pickle.dump(raw_predictions,w)
+
+            predictions = [[] for i in range(data_size)]  # data_len x augmentation x beam_size
+            scores = [[] for _ in range(data_size)]
+            for i, (line, score) in tqdm(enumerate(zip(raw_predictions, Scores)),total=len(Scores)):
+                predictions[i // (args.beam_size * args.augmentation * args.stage_one_topn)].append(line)
+                scores[i // (args.beam_size * args.augmentation * args.stage_one_topn)].append(score)
+
+            del raw_predictions, Scores
+            print("data size ", data_size)
+            with open(r'predictions.pkl', 'wb') as w:
+                pickle.dump(predictions, w)
+            with open(r'scores.pkl', 'wb') as w:
+                pickle.dump(scores, w)
+
+
         if args.infer_each_class:
-                csv = pd.read_csv(r'dataset/stage_one/test/canonicalized_test.csv')
-                rxn_class_list = csv['class'].tolist()
-                rxn_class_list = [rxn_class - 1 for rxn_class in rxn_class_list]
-                assert len(rxn_class_list) == len(predictions)
+            csv = pd.read_csv(r'dataset/stage_one/test/canonicalized_test.csv')
+            rxn_class_list = csv['class'].tolist()
+            rxn_class_list = [rxn_class - 1 for rxn_class in rxn_class_list]
+            assert len(rxn_class_list) == len(predictions)
 
-                class_Topn_acc = [[0 for _ in range(args.n_best)] for _ in range(10)]
-                class_max_frag_accuracy = [[0 for _ in range(args.n_best)] for _ in range(10)]
-                class_label = [0 for _ in range(10)]
+            class_Topn_acc = [[0 for _ in range(args.n_best)] for _ in range(10)]
+            class_max_frag_accuracy = [[0 for _ in range(args.n_best)] for _ in range(10)]
+            class_label = [0 for _ in range(10)]
 
-                for i in tqdm(range(len(predictions))):
-                    accurate_flag = False
-                    rxn_class = rxn_class_list[i]
-                    class_label[rxn_class] += 1
-                    ranked_results = []
-                    rank = compute_rank(predictions[i], scores[i], add=args.add, alpha=args.score_alpha)
-                    rank = list(zip(rank.keys(), rank.values()))
-                    rank.sort(key=lambda x: x[1], reverse=True)
-                    rank = rank[:args.n_best]
-                    ranked_results.append([item[0][0] for item in rank])
+            for i in tqdm(range(len(predictions))):
+                accurate_flag = False
+                rxn_class = rxn_class_list[i]
+                class_label[rxn_class] += 1
+                ranked_results = []
+                rank = compute_rank(predictions[i], scores[i], add=args.add, alpha=args.score_alpha)
+                rank = list(zip(rank.keys(), rank.values()))
+                rank.sort(key=lambda x: x[1], reverse=True)
+                rank = rank[:args.n_best]
+                ranked_results.append([item[0][0] for item in rank])
 
-                    for j, item in enumerate(rank):
-                        if item[0][0] == ground_truth[i][0]:
-                            if not accurate_flag:
-                                accurate_flag = True
-                                for k in range(j, args.n_best):
-                                    class_Topn_acc[rxn_class][k] += 1
-
-                    for j, item in enumerate(rank):
-                        if item[0][1] == ground_truth[i][1]:
+                for j, item in enumerate(rank):
+                    if item[0][0] == ground_truth[i][0]:
+                        if not accurate_flag:
+                            accurate_flag = True
                             for k in range(j, args.n_best):
-                                class_max_frag_accuracy[rxn_class][k] += 1
-                            break
+                                class_Topn_acc[rxn_class][k] += 1
 
-                print('Test Each Class Top-%s Accuracy' % args.n_best)
-                for r in range(10):
-                    print('RXN_class %s acc:' % (r + 1))
-                    for i in range(args.n_best):
-                        if i in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 49]:
-                            # if i in range(10):
-                            print("Top-{} Acc:{:.3f}%, MaxFrag {:.3f}%,".format(i + 1, class_Topn_acc[r][i] / class_label[r] * 100,
-                                                                                class_max_frag_accuracy[r][i] / class_label[r] * 100),
-                                  " Invalid SMILES:{:.3f}% Sorted Invalid SMILES:{:.3f}%".format(0, 0))
+                for j, item in enumerate(rank):
+                    if item[0][1] == ground_truth[i][1]:
+                        for k in range(j, args.n_best):
+                            class_max_frag_accuracy[rxn_class][k] += 1
+                        break
+
+            print('Test Each Class Top-%s Accuracy' % args.n_best)
+            for r in range(10):
+                print('RXN_class %s acc:' % (r + 1))
+                for i in range(args.n_best):
+                    if i in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 49]:
+                        # if i in range(10):
+                        print("Top-{} Acc:{:.3f}%, MaxFrag {:.3f}%,".format(i + 1, class_Topn_acc[r][i] / class_label[r] * 100,
+                                                                            class_max_frag_accuracy[r][i] / class_label[r] * 100),
+                              " Invalid SMILES:{:.3f}% Sorted Invalid SMILES:{:.3f}%".format(0, 0))
 
         else:
             accuracy = [0 for j in range(args.n_best)]
