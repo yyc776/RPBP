@@ -28,14 +28,12 @@ It is for review only. Do not propagate.Thank you very much.
     cd preprocess
   * 1.1:Extraction the by-product from the reaction  
   
-
-    python generate_byproduct.py  
+        python generate_byproduct.py  
 
   * 1.2: Data processing  
   
-
-    python generate_product_pkl.py
-    python generate_product_pkl.py --with_class  
+        python generate_product_pkl.py
+        python generate_product_pkl.py --with_class  
 
 
 ### Step 2: Train model of stage-one and infer by-product  
