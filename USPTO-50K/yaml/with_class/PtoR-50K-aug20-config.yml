@@ -1,21 +1,21 @@
 data:
   corpus_1:
-    path_src: dataset/stage_two/train/sideprod_src-train.txt
-    path_tgt: dataset/stage_two/train/tgt-train.txt
+    path_src: USPTO-50K/dataset/stage_two/train/byproduct_src-train_with_class.txt
+    path_tgt: USPTO-50K/dataset/stage_two/train/tgt-train.txt
   valid:
-    path_src: dataset/stage_two/eval/sideprod_src-eval.txt
-    path_tgt: dataset/stage_two/eval/tgt-eval.txt
+    path_src: USPTO-50K/dataset/stage_two/eval/byproduct_src-eval_with_class.txt
+    path_tgt: USPTO-50K/dataset/stage_two/eval/tgt-eval.txt
 
 n_sample: 0
-save_data: dataset/stage_two/without_class/example
-src_vocab: dataset/stage_two/without_class/example.vocab.src
-tgt_vocab: dataset/stage_two/without_class/example.vocab.src
+save_data: USPTO-50K/dataset/stage_two/with_class/example
+src_vocab: USPTO-50K/dataset/stage_two/with_class/example.vocab.src
+tgt_vocab: USPTO-50K/dataset/stage_two/with_class/example.vocab.src
 share_vocab: 'true'
 src_seq_length: 500
 tgt_seq_length: 500
 overwrite: 'true'
 
-save_model: save_model/stage_two/without_class/aug20/model.product-reactants
+save_model: USPTO-50K/save_model/stage_two/with_class/aug20/model.product-reactants
 save_checkpoint_steps: 10000
 keep_checkpoint: 40
 seed: 3435

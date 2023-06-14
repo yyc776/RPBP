@@ -1,0 +1,16 @@
+data:
+  corpus_1:
+    path_src: USPTO-50K/dataset/stage_two/train/byproduct_src-train.txt
+    path_tgt: USPTO-50K/dataset/stage_two/train/tgt-train.txt
+  valid:
+    path_src: USPTO-50K/dataset/stage_two/eval/byproduct_src-eval.txt
+    path_tgt: USPTO-50K/dataset/stage_two/eval/tgt-eval.txt
+
+n_sample: -1
+save_data: USPTO-50K/dataset/stage_two/without_class/example
+src_vocab: USPTO-50K/dataset/stage_two/without_class/example.vocab.src
+tgt_vocab: USPTO-50K/dataset/stage_two/without_class/example.vocab.src
+share_vocab: 'true'
+src_seq_length: 500
+tgt_seq_length: 500
+overwrite: 'true'

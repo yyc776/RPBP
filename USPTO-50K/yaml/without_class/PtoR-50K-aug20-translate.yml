@@ -1,0 +1,12 @@
+model: USPTO-50K/save_model/stage_two/without_class/aug20/average_model_56-60.pt
+src: USPTO-50K/dataset/stage_two/without_class/top10_byproduct_src-test.txt
+output: USPTO-50K/results/stage_two/without_class/average_model_56-60-results.txt
+gpu: 0
+beam_size: 10
+n_best: 10
+batch_size: 8192
+batch_type: tokens
+max_length: 500
+seed: 0
+
+
