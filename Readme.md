@@ -1,7 +1,6 @@
 # RPBP
  
-This directory contains the source code of unpublished articles.  
-It is for review only. Do not propagate.Thank you very much.
+The directory contains source code of the article: Yan et al's RPBP: Deep Retrosynthesis Reaction Prediction Based on Byproducts.
 
 ## Environment Preparation
     conda create -n rpbp python=3.7
